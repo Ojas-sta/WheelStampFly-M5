@@ -64,8 +64,8 @@ extern "C" {
 #define IMU_SPI_SCK_PIN         GPIO_NUM_44  // StampFly Official SCK
 #define IMU_SPI_MOSI_PIN        GPIO_NUM_14  // StampFly Official MOSI
 #define IMU_SPI_MISO_PIN        GPIO_NUM_43  // StampFly Official MISO
-#define BMI270_CS_PIN           GPIO_NUM_12  // StampFly Official BMI270 CS
-#define PMW3901_CS_PIN          GPIO_NUM_46  // StampFly Official PMW3901 CS
+#define BMI270_CS_PIN           GPIO_NUM_46  // StampFly Official BMI270 CS (PIN_CS in common.h)
+#define PMW3901_CS_PIN          GPIO_NUM_12  // StampFly Official PMW3901 CS
 
 // ==============================================================================
 // 6. AUDIO / VISUAL HARDWARE

@@ -263,8 +263,8 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
         case MSP_STATUS: {
             uint16_t cycle_time = current_telem.cycle_time_us > 0 ? current_telem.cycle_time_us : 1000;
             uint16_t i2c_errs = 0;
-            // Betaflight sensor bits: Bit 0=ACC, Bit 1=BARO, Bit 2=MAG, Bit 3=GPS, Bit 4=RANGEFINDER, Bit 5=GYRO
-            uint16_t sensor_flags = (1 << 0) | (1 << 1) | (1 << 4) | (1 << 5); // 0x33 (ACC + BARO + RANGE + GYRO)
+            // Betaflight sensor bits: Bit 0=ACC, Bit 1=BARO, Bit 2=MAG, Bit 3=GPS, Bit 4=RANGEFINDER, Bit 5=GYRO, Bit 6=OPTICALFLOW
+            uint16_t sensor_flags = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 6); // 0x77
             uint32_t flight_mode = current_telem.armed ? 0x01 : 0x00;
 
             buf[0] = cycle_time & 0xFF; buf[1] = cycle_time >> 8;
@@ -281,7 +281,7 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
         case MSP_STATUS_EX: {
             uint16_t cycle_time = current_telem.cycle_time_us > 0 ? current_telem.cycle_time_us : 1000;
             uint16_t i2c_errs = 0;
-            uint16_t sensor_flags = (1 << 0) | (1 << 1) | (1 << 4) | (1 << 5); // ACC + BARO + RANGE + GYRO
+            uint16_t sensor_flags = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 6); // 0x77
             uint32_t flight_mode = current_telem.armed ? 0x01 : 0x00;
             uint8_t pid_profile = 0;
             uint16_t cpu_load = current_telem.cpu_load_pct;
@@ -458,9 +458,9 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
 
         case MSP_SENSOR_CONFIG:
             buf[0] = 1; // ACC hardware: Bosch BMI270
-            buf[1] = 0; // BARO hardware: none/default
-            buf[2] = 0; // MAG hardware: none
-            buf[3] = 0; // SONAR hardware: none
+            buf[1] = 1; // BARO hardware: Bosch BMP280
+            buf[2] = 1; // MAG hardware: Bosch BMM150
+            buf[3] = 1; // SONAR hardware: STP23L LiDAR
             if (is_v2) msp2_send_packet(cmd, buf, 4);
             else msp_send_packet((uint8_t)cmd, buf, 4);
             break;

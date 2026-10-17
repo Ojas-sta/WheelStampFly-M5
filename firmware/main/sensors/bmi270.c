@@ -48,28 +48,26 @@ static esp_err_t spi_write_bytes(uint8_t reg, const uint8_t *data, size_t len) {
         .tx_buffer = s_tx_buf,
         .rx_buffer = NULL,
     };
-    return spi_device_transmit(spi_dev, &t);
+    return spi_device_polling_transmit(spi_dev, &t);
 }
 
 static esp_err_t spi_read_bytes(uint8_t reg, uint8_t *data, size_t len) {
     if (!spi_dev || !s_tx_buf || !s_rx_buf) return ESP_ERR_INVALID_STATE;
-    if (len + 2 > 512) return ESP_ERR_INVALID_SIZE;
+    if (len + 1 > 512) return ESP_ERR_INVALID_SIZE;
 
-    memset(s_tx_buf, 0, len + 2);
+    memset(s_tx_buf, 0, len + 1);
     s_tx_buf[0] = reg | 0x80; // MSB 1 = read
-    // s_tx_buf[1] is dummy byte for BMI270 SPI read
 
     spi_transaction_t t = {
-        .length = (len + 2) * 8,
+        .length = (len + 1) * 8,
         .tx_buffer = s_tx_buf,
         .rx_buffer = s_rx_buf,
     };
-    esp_err_t ret = spi_device_transmit(spi_dev, &t);
+    esp_err_t ret = spi_device_polling_transmit(spi_dev, &t);
     if (ret == ESP_OK && data) {
-        // rx_buf[0] = during reg byte (ignore)
-        // rx_buf[1] = during dummy byte (ignore)
-        // rx_buf[2..] = valid data
-        memcpy(data, &s_rx_buf[2], len);
+        // rx_buf[0] is during register address transmission
+        // rx_buf[1..len] contains the valid returned register data
+        memcpy(data, &s_rx_buf[1], len);
     }
     return ret;
 }
@@ -94,59 +92,42 @@ esp_err_t bmi270_init(void) {
         return ESP_ERR_NO_MEM;
     }
 
-    // 2. Configure CS pins manually first
-    // Deselect PMW3901 Optical Flow on shared SPI bus (pull HIGH)
-    gpio_config_t cs_opt_conf = {
-        .pin_bit_mask = (1ULL << PMW3901_CS_PIN),
+    // 2. Configure both CS pins as OUTPUT HIGH (Deselected)
+    gpio_config_t cs_conf = {
+        .pin_bit_mask = (1ULL << PMW3901_CS_PIN) | (1ULL << BMI270_CS_PIN),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
-    gpio_config(&cs_opt_conf);
-    gpio_set_level(PMW3901_CS_PIN, 1);
-
-    // BMI270 CS Pin
-    gpio_config_t cs_bmi_conf = {
-        .pin_bit_mask = (1ULL << BMI270_CS_PIN),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&cs_bmi_conf);
-
-    // 3. BMI270 SPI Mode Select Protocol:
-    // Device powers up in I2C mode. A LOW-to-HIGH pulse on CS switches it into SPI mode.
-    gpio_set_level(BMI270_CS_PIN, 1);
+    gpio_config(&cs_conf);
+    gpio_set_level(PMW3901_CS_PIN, 1); // Pin 12 HIGH
+    gpio_set_level(BMI270_CS_PIN, 1);  // Pin 46 HIGH
     esp_rom_delay_us(5000);
-    gpio_set_level(BMI270_CS_PIN, 0);
-    esp_rom_delay_us(2000);
-    gpio_set_level(BMI270_CS_PIN, 1);
-    esp_rom_delay_us(10000);
 
-    // 4. Initialize SPI Bus
+    // 3. Initialize SPI Bus (8 MHz, SPI_DMA_CH_AUTO)
     spi_bus_config_t buscfg = {
-        .miso_io_num = IMU_SPI_MISO_PIN,
-        .mosi_io_num = IMU_SPI_MOSI_PIN,
-        .sclk_io_num = IMU_SPI_SCK_PIN,
+        .miso_io_num = IMU_SPI_MISO_PIN, // GPIO 43
+        .mosi_io_num = IMU_SPI_MOSI_PIN, // GPIO 14
+        .sclk_io_num = IMU_SPI_SCK_PIN,  // GPIO 44
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 1024,
+        .max_transfer_sz = 4096 * 2,
     };
     ESP_ERROR_CHECK(spi_bus_initialize(IMU_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
     spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 10 * 1000 * 1000, // 10 MHz
-        .mode = 0,                          // SPI Mode 0
-        .spics_io_num = BMI270_CS_PIN,
-        .queue_size = 1,
+        .clock_speed_hz = 8 * 1000 * 1000,  // 8 MHz (SPI_MASTER_FREQ_8M)
+        .mode = 0,                           // SPI Mode 0
+        .spics_io_num = BMI270_CS_PIN,       // GPIO 46 (PIN_CS)
+        .queue_size = 10,
     };
     ESP_ERROR_CHECK(spi_bus_add_device(IMU_SPI_HOST, &devcfg, &spi_dev));
 
-    // 5. Read Chip ID
-    uint8_t chip_id = read_reg(BMI270_REG_CHIP_ID);
-    ESP_LOGI(TAG, "BMI270 Read Chip ID: 0x%02X (Expected: 0x24)", chip_id);
+    // 4. BMI270 SPI Mode Select Protocol:
+    // Device powers up in I2C mode. A dummy read switches it into SPI mode.
+    read_reg(BMI270_REG_CHIP_ID);
+    esp_rom_delay_us(2000);
 
     // 6. Soft Reset
     write_reg(BMI270_REG_CMD, BMI270_CMD_SOFTRESET);

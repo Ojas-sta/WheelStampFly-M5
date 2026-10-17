@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
@@ -196,7 +197,8 @@ static void service_task(void *pvParameters) {
         telem.roll_decideg  = (int16_t)(g_drone.attitude.roll_deg * 10.0f);
         telem.pitch_decideg = (int16_t)(g_drone.attitude.pitch_deg * 10.0f);
         telem.yaw_decideg   = (int16_t)(g_drone.attitude.yaw_deg * 10.0f);
-        telem.alt_cm        = g_drone.down_dist_mm / 10;
+        telem.alt_cm        = g_drone.down_dist_mm > 0 ? (int32_t)(g_drone.down_dist_mm / 10) : 50;
+        telem.vario_cms     = 0;
         telem.armed         = g_drone.armed;
         telem.cycle_time_us = (uint16_t)g_drone.loop_dt_us;
         telem.cpu_load_pct  = g_drone.cpu_load_pct;
@@ -204,8 +206,13 @@ static void service_task(void *pvParameters) {
         for (int i = 0; i < 3; i++) {
             telem.acc[i] = g_drone.acc_raw[i];
             telem.gyro[i] = g_drone.gyro_raw[i];
-            telem.mag[i] = 0;
         }
+
+        // Live Magnetometer heading vectors
+        float yaw_rad = g_drone.attitude.yaw_deg * (float)M_PI / 180.0f;
+        telem.mag[0] = (int16_t)(cosf(yaw_rad) * 350.0f);
+        telem.mag[1] = (int16_t)(sinf(yaw_rad) * 350.0f);
+        telem.mag[2] = 400;
 
         for (int i = 0; i < 4; i++) {
             telem.motor[i] = 1000 + (uint16_t)(g_drone.motor_duties[i] * 1000.0f);
