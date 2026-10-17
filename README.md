@@ -100,8 +100,8 @@ This project builds using [PlatformIO](https://platformio.org/).
 
 ```bash
 # Clone the repository
-git clone https://github.com/Ojas-sta/wheeltec-f570-stampfly.git
-cd wheeltec-f570-stampfly/firmware
+git clone https://github.com/Ojas-sta/WheelStampFly-M5.git
+cd WheelStampFly-M5/firmware
 
 # Build firmware
 pio run
