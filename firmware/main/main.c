@@ -200,20 +200,6 @@ static void service_task(void *pvParameters) {
         }
 
         msp_update_telemetry(&telem);
-
-        // Read USB-CDC input buffer for incoming Betaflight Configurator packets
-        int c;
-        while ((c = fgetc(stdin)) != EOF) {
-            msp_process_byte((uint8_t)c);
-        }
-
-        // 7. Periodic Performance Telemetry Log (every 1 second)
-        if (++log_counter >= 100) {
-            log_counter = 0;
-            ESP_LOGI(TAG, "[PERF] CPU: 240 MHz | Loop Period: %lu us | Math Exec: %lu us | Core 1 Load: %u%% | BleConnected: %s",
-                     g_drone.loop_dt_us, g_drone.exec_us, g_drone.cpu_load_pct,
-                     ble_msp_is_connected() ? "YES" : "NO");
-        }
     }
 }
 
@@ -221,13 +207,6 @@ static void service_task(void *pvParameters) {
 // ENTRY POINT
 // ==============================================================================
 void app_main(void) {
-    ESP_LOGI(TAG, "=========================================================");
-    ESP_LOGI(TAG, "  OsusX Flight Controller (Betaflight Compatible)");
-    ESP_LOGI(TAG, "  Target: WHEELTEC F570 x M5Stamp-S3");
-    ESP_LOGI(TAG, "  CPU Max Clock: 240 MHz (Dual-Core Xtensa LX7)");
-    ESP_LOGI(TAG, "  Framework: Pure Native ESP-IDF v5.x");
-    ESP_LOGI(TAG, "=========================================================");
-
     // Initialize NVS (required for non-volatile config storage and BLE)
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -257,8 +236,6 @@ void app_main(void) {
     // Initialize Bluetooth BLE Betaflight Server on Core 0
     ble_msp_init();
 
-    ESP_LOGI(TAG, "Hardware & Bluetooth initialized. Spawning dual-core FreeRTOS tasks...");
-
     // Spawn Flight Control Task strictly on Core 1 (Highest Priority, 1000Hz)
     xTaskCreatePinnedToCore(flight_core_task, "flight_core", 4096, NULL, 
                             FLIGHT_TASK_PRIORITY, NULL, FLIGHT_TASK_CORE);
@@ -267,5 +244,11 @@ void app_main(void) {
     xTaskCreatePinnedToCore(service_task, "service_core", 4096, NULL, 
                             SERVICE_TASK_PRIORITY, NULL, SERVICE_TASK_CORE);
 
-    ESP_LOGI(TAG, "OsusX running at 240 MHz. Ready for Betaflight Configurator!");
+    // Spawn USB-MSP Event-driven Receiver Task strictly on Core 0
+    xTaskCreatePinnedToCore(msp_usb_task_entry, "msp_usb", 4096, NULL, 
+                            5, NULL, 0);
+
+    ESP_LOGI(TAG, "BOOT COMPLETE: Tasks created successfully");
 }
+
+

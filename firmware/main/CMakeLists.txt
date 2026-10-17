@@ -23,4 +23,5 @@ idf_component_register(
         esp_timer
         nvs_flash
         bt
+        vfs
 )

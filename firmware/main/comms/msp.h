@@ -42,6 +42,7 @@ typedef struct {
 void msp_init(void);
 void msp_process_byte(uint8_t c);
 void msp_update_telemetry(const msp_telemetry_t *telem);
+void msp_usb_task_entry(void *pvParameters);
 
 #ifdef __cplusplus
 }
