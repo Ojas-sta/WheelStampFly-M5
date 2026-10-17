@@ -22,6 +22,7 @@ typedef struct {
 
 esp_err_t bmi270_init(void);
 esp_err_t bmi270_read(imu_data_t *data);
+void bmi270_calibrate(void);
 
 #ifdef __cplusplus
 }

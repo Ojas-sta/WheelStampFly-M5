@@ -1,5 +1,7 @@
 #include "msp.h"
 #include "ble_msp.h"
+#include "../sensors/bmi270.h"
+#include "../flight_core/ahrs.h"
 #include "hal/usb_serial_jtag_ll.h"
 #include "esp_mac.h"
 #include "esp_rom_sys.h"
@@ -38,6 +40,7 @@
 #define MSP_STATUS_EX       150
 #define MSP_UID             160
 #define MSP_SET_PID         202
+#define MSP_ACC_CALIBRATION 205
 #define MSP_SET_MOTOR       214
 #define MSP_ACC_TRIM        240
 #define MSP_EEPROM_WRITE    250
@@ -541,6 +544,13 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
             msp2_send_packet(cmd, buf, 1 + nlen);
             break;
         }
+
+        case MSP_ACC_CALIBRATION:
+            bmi270_calibrate();
+            ahrs_init(1000.0f);
+            if (is_v2) msp2_send_packet(cmd, NULL, 0);
+            else msp_send_packet((uint8_t)cmd, NULL, 0);
+            break;
 
         case MSP_EEPROM_WRITE:
             if (is_v2) msp2_send_packet(cmd, NULL, 0);
