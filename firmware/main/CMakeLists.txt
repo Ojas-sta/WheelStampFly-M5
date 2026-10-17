@@ -1,0 +1,24 @@
+idf_component_register(
+    SRCS 
+        "main.c"
+        "flight_core/motor_pwm.c"
+        "flight_core/ahrs.c"
+        "flight_core/pid.c"
+        "comms/ibus.c"
+        "comms/msp.c"
+        "sensors/bmi270.c"
+        "sensors/front_tof.c"
+        "sensors/stp23l.c"
+        "safety/bumper.c"
+        "safety/ui_led_buzzer.c"
+    INCLUDE_DIRS 
+        "."
+        "flight_core"
+        "comms"
+        "sensors"
+        "safety"
+    REQUIRES
+        driver
+        esp_timer
+        nvs_flash
+)
