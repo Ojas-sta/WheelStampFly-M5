@@ -23,6 +23,11 @@ typedef struct {
     bool armed;
     flight_state_t flight_state;
 
+    // High Precision Performance Timing
+    uint32_t loop_dt_us;    // Actual cycle period in microseconds (target 1000us)
+    uint32_t exec_us;       // Actual calculation time per cycle (target < 50us)
+    uint8_t cpu_load_pct;   // Core 1 CPU load (0-100%)
+
     // Environmental Ranging (Written by Core 0, Read by Core 1)
     uint16_t front_dist_mm;
     uint16_t down_dist_mm;

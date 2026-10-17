@@ -32,9 +32,11 @@ typedef struct {
     // RC Channels
     uint16_t rc_channels[14]; // 1000 - 2000
 
-    // Flight Status
+    // Flight Status & Real Timing
     bool armed;
     uint32_t flight_mode_flags;
+    uint16_t cycle_time_us; // Actual loop cycle time in microseconds
+    uint8_t cpu_load_pct;   // Actual CPU usage (0-100%)
 } msp_telemetry_t;
 
 void msp_init(void);

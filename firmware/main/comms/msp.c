@@ -1,4 +1,5 @@
 #include "msp.h"
+#include "ble_msp.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -7,6 +8,8 @@
 #define MSP_FC_VARIANT      2
 #define MSP_FC_VERSION      3
 #define MSP_BOARD_INFO      4
+#define MSP_BUILD_INFO      5
+#define MSP_NAME            11
 #define MSP_STATUS          101
 #define MSP_RAW_IMU         102
 #define MSP_MOTOR           104
@@ -62,14 +65,18 @@ static void msp_send_packet(uint8_t cmd, const uint8_t *payload, uint8_t len) {
     }
     out[idx++] = checksum;
 
-    // Stream out over USB-CDC stdout
+    // 1. Stream over USB-CDC
     fwrite(out, 1, idx, stdout);
     fflush(stdout);
+
+    // 2. Stream simultaneously over Bluetooth BLE for wireless Betaflight Configurator
+    ble_msp_send(out, idx);
 }
 
 void msp_init(void) {
     state = MSP_IDLE;
     memset(&current_telem, 0, sizeof(current_telem));
+    current_telem.cycle_time_us = 1000;
     for (int i = 0; i < 4; i++) current_telem.motor[i] = 1000;
     for (int i = 0; i < 14; i++) current_telem.rc_channels[i] = 1500;
     current_telem.rc_channels[2] = 1000; // Throttle
@@ -105,15 +112,40 @@ static void msp_dispatch(uint8_t cmd) {
             msp_send_packet(cmd, buf, 3);
             break;
 
-        case MSP_BOARD_INFO:
-            memcpy(buf, "WHLF", 4); // WheelStampFly
-            buf[4] = 0;
+        case MSP_BOARD_INFO: {
+            // Target board identifier: "OSUX"
+            memcpy(buf, "OSUX", 4);
+            buf[4] = 0; // Hardware revision
             buf[5] = 0;
-            msp_send_packet(cmd, buf, 6);
+            // Target Board Name: "OsusX"
+            const char *board_name = "OsusX";
+            uint8_t name_len = strlen(board_name);
+            buf[6] = name_len;
+            memcpy(&buf[7], board_name, name_len);
+            msp_send_packet(cmd, buf, 7 + name_len);
             break;
+        }
+
+        case MSP_BUILD_INFO: {
+            const char *build_str = "OsusX-v1.0.0-ESP32S3";
+            uint8_t len = strlen(build_str);
+            memcpy(buf, build_str, len);
+            msp_send_packet(cmd, buf, len);
+            break;
+        }
+
+        case MSP_NAME: {
+            // Craft Name displayed in Betaflight Configurator top bar
+            const char *craft_name = "OsusX";
+            uint8_t len = strlen(craft_name);
+            memcpy(buf, craft_name, len);
+            msp_send_packet(cmd, buf, len);
+            break;
+        }
 
         case MSP_STATUS: {
-            uint16_t cycle_time = 1000; // 1000us (1kHz)
+            // Report actual real hardware cycle time in microseconds
+            uint16_t cycle_time = current_telem.cycle_time_us > 0 ? current_telem.cycle_time_us : 1000;
             uint16_t i2c_errs = 0;
             uint16_t sensor_flags = 0x01 | 0x02 | 0x04; // ACC | BARO | MAG
             uint32_t flight_mode = current_telem.armed ? 0x01 : 0x00;
@@ -129,7 +161,6 @@ static void msp_dispatch(uint8_t cmd) {
         }
 
         case MSP_RAW_IMU:
-            // 9x 16-bit values
             for (int i = 0; i < 3; i++) {
                 buf[i*2] = current_telem.acc[i] & 0xFF;
                 buf[i*2 + 1] = current_telem.acc[i] >> 8;
@@ -170,7 +201,7 @@ static void msp_dispatch(uint8_t cmd) {
             break;
 
         case MSP_RC:
-            for (int i = 0; i < 8; i++) { // Report first 8 channels
+            for (int i = 0; i < 8; i++) {
                 buf[i*2] = current_telem.rc_channels[i] & 0xFF;
                 buf[i*2 + 1] = current_telem.rc_channels[i] >> 8;
             }

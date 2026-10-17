@@ -5,6 +5,8 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "esp_pm.h"
+#include "soc/rtc.h"
 
 #include "config.h"
 #include "shared_state.h"
@@ -16,10 +18,11 @@
 #include "sensors/stp23l.h"
 #include "comms/ibus.h"
 #include "comms/msp.h"
+#include "comms/ble_msp.h"
 #include "safety/bumper.h"
 #include "safety/ui_led_buzzer.h"
 
-static const char *TAG = "MAIN";
+static const char *TAG = "OsusX";
 drone_shared_state_t g_drone;
 
 // ==============================================================================
@@ -33,11 +36,16 @@ static void flight_core_task(void *pvParameters) {
     const float dt = 0.001f;
 
     imu_data_t imu;
+    int64_t last_cycle_us = esp_timer_get_time();
 
     while (1) {
         vTaskDelayUntil(&last_wake_time, period);
 
-        // 1. Read IMU
+        int64_t t_start = esp_timer_get_time();
+        int64_t dt_actual_us = t_start - last_cycle_us;
+        last_cycle_us = t_start;
+
+        // 1. Read IMU (BMI270 over SPI @ 10MHz)
         if (bmi270_read(&imu) == ESP_OK) {
             // 2. Update Mahony AHRS Attitude Filter
             ahrs_update(imu.gx_rads, imu.gy_rads, imu.gz_rads,
@@ -109,6 +117,15 @@ static void flight_core_task(void *pvParameters) {
             g_drone.motor_duties[2] = 0.0f;
             g_drone.motor_duties[3] = 0.0f;
         }
+
+        int64_t t_end = esp_timer_get_time();
+        int64_t exec_us = t_end - t_start;
+
+        g_drone.loop_dt_us = (uint32_t)dt_actual_us;
+        g_drone.exec_us = (uint32_t)exec_us;
+        if (dt_actual_us > 0) {
+            g_drone.cpu_load_pct = (uint8_t)((exec_us * 100) / dt_actual_us);
+        }
     }
 }
 
@@ -122,6 +139,7 @@ static void service_task(void *pvParameters) {
     const TickType_t period = pdMS_TO_TICKS(10); // 10ms
 
     msp_telemetry_t telem;
+    uint32_t log_counter = 0;
 
     while (1) {
         vTaskDelayUntil(&last_wake_time, period);
@@ -165,12 +183,14 @@ static void service_task(void *pvParameters) {
         const bumper_status_t *b_status = bumper_get_status();
         ui_update(g_drone.flight_state, b_status->obstacle_warning, b_status->active_braking);
 
-        // 6. Process Betaflight Configurator MSP Telemetry over USB
+        // 6. Process Betaflight Configurator MSP Telemetry
         telem.roll_decideg  = (int16_t)(g_drone.attitude.roll_deg * 10.0f);
         telem.pitch_decideg = (int16_t)(g_drone.attitude.pitch_deg * 10.0f);
         telem.yaw_decideg   = (int16_t)(g_drone.attitude.yaw_deg * 10.0f);
         telem.alt_cm        = g_drone.down_dist_mm / 10;
         telem.armed         = g_drone.armed;
+        telem.cycle_time_us = (uint16_t)g_drone.loop_dt_us;
+        telem.cpu_load_pct  = g_drone.cpu_load_pct;
 
         for (int i = 0; i < 4; i++) {
             telem.motor[i] = 1000 + (uint16_t)(g_drone.motor_duties[i] * 1000.0f);
@@ -186,6 +206,14 @@ static void service_task(void *pvParameters) {
         while ((c = fgetc(stdin)) != EOF) {
             msp_process_byte((uint8_t)c);
         }
+
+        // 7. Periodic Performance Telemetry Log (every 1 second)
+        if (++log_counter >= 100) {
+            log_counter = 0;
+            ESP_LOGI(TAG, "[PERF] CPU: 240 MHz | Loop Period: %lu us | Math Exec: %lu us | Core 1 Load: %u%% | BleConnected: %s",
+                     g_drone.loop_dt_us, g_drone.exec_us, g_drone.cpu_load_pct,
+                     ble_msp_is_connected() ? "YES" : "NO");
+        }
     }
 }
 
@@ -193,12 +221,14 @@ static void service_task(void *pvParameters) {
 // ENTRY POINT
 // ==============================================================================
 void app_main(void) {
-    ESP_LOGI(TAG, "==================================================");
-    ESP_LOGI(TAG, "  WHEELTEC F570 x M5StampFly Hybrid Flight Control");
+    ESP_LOGI(TAG, "=========================================================");
+    ESP_LOGI(TAG, "  OsusX Flight Controller (Betaflight Compatible)");
+    ESP_LOGI(TAG, "  Target: WHEELTEC F570 x M5Stamp-S3");
+    ESP_LOGI(TAG, "  CPU Max Clock: 240 MHz (Dual-Core Xtensa LX7)");
     ESP_LOGI(TAG, "  Framework: Pure Native ESP-IDF v5.x");
-    ESP_LOGI(TAG, "==================================================");
+    ESP_LOGI(TAG, "=========================================================");
 
-    // Initialize NVS (required for non-volatile config storage)
+    // Initialize NVS (required for non-volatile config storage and BLE)
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -207,6 +237,7 @@ void app_main(void) {
     ESP_ERROR_CHECK(ret);
 
     memset(&g_drone, 0, sizeof(g_drone));
+    g_drone.loop_dt_us = 1000;
     for (int i = 0; i < 14; i++) g_drone.rc_channels[i] = 1500;
     g_drone.rc_channels[2] = 1000; // Throttle
     g_drone.rc_failsafe = true;
@@ -223,15 +254,18 @@ void app_main(void) {
     bumper_init();
     ui_init();
 
-    ESP_LOGI(TAG, "Hardware initialized. Spawning dual-core FreeRTOS tasks...");
+    // Initialize Bluetooth BLE Betaflight Server on Core 0
+    ble_msp_init();
 
-    // Spawn Flight Control Task strictly on Core 1 (Highest Priority)
+    ESP_LOGI(TAG, "Hardware & Bluetooth initialized. Spawning dual-core FreeRTOS tasks...");
+
+    // Spawn Flight Control Task strictly on Core 1 (Highest Priority, 1000Hz)
     xTaskCreatePinnedToCore(flight_core_task, "flight_core", 4096, NULL, 
                             FLIGHT_TASK_PRIORITY, NULL, FLIGHT_TASK_CORE);
 
-    // Spawn Service/Telemetry Task strictly on Core 0 (Background)
+    // Spawn Service/Telemetry Task strictly on Core 0 (Background, 100Hz)
     xTaskCreatePinnedToCore(service_task, "service_core", 4096, NULL, 
                             SERVICE_TASK_PRIORITY, NULL, SERVICE_TASK_CORE);
 
-    ESP_LOGI(TAG, "System running. Ready for flight!");
+    ESP_LOGI(TAG, "OsusX running at 240 MHz. Ready for Betaflight Configurator!");
 }

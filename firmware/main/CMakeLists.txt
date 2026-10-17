@@ -6,6 +6,7 @@ idf_component_register(
         "flight_core/pid.c"
         "comms/ibus.c"
         "comms/msp.c"
+        "comms/ble_msp.c"
         "sensors/bmi270.c"
         "sensors/front_tof.c"
         "sensors/stp23l.c"
@@ -21,4 +22,5 @@ idf_component_register(
         driver
         esp_timer
         nvs_flash
+        bt
 )
