@@ -16,7 +16,9 @@
 #define MSP_BUILD_INFO      5
 #define MSP_NAME            11
 #define MSP_FEATURE_CONFIG  36
+#define MSP_MIXER_CONFIG    42
 #define MSP_CF_SERIAL_CONFIG 54
+#define MSP_ADVANCED_CONFIG 90
 #define MSP_SENSOR_CONFIG    96
 #define MSP_IDENT           100
 #define MSP_STATUS          101
@@ -37,7 +39,11 @@
 #define MSP_UID             160
 #define MSP_SET_PID         202
 #define MSP_SET_MOTOR       214
+#define MSP_ACC_TRIM        240
 #define MSP_EEPROM_WRITE    250
+
+// MSP V2 Extended Commands
+#define MSP2_MCU_INFO       0x300C
 
 typedef enum {
     MSP_STATE_IDLE,
@@ -378,9 +384,10 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
             buf[4] = 1000 & 0xFF; buf[5] = 1000 >> 8; // mincommand
             buf[6] = 4; // Motor count
             buf[7] = 14; // Poles
-            buf[8] = 0;
-            if (is_v2) msp2_send_packet(cmd, buf, 9);
-            else msp_send_packet((uint8_t)cmd, buf, 9);
+            buf[8] = 0; // use_dshot_telemetry
+            buf[9] = 0; // use_esc_sensor
+            if (is_v2) msp2_send_packet(cmd, buf, 10);
+            else msp_send_packet((uint8_t)cmd, buf, 10);
             break;
 
         case MSP_RC:
@@ -462,9 +469,10 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
             buf[0] = 0; // gyro alignment: CW0
             buf[1] = 0; // acc alignment: CW0
             buf[2] = 0; // mag alignment: CW0
-            buf[3] = 0; // gyro to use: primary
-            if (is_v2) msp2_send_packet(cmd, buf, 4);
-            else msp_send_packet((uint8_t)cmd, buf, 4);
+            buf[3] = 0; // gyro detection flags
+            buf[4] = 0; // gyro to use: primary (0)
+            if (is_v2) msp2_send_packet(cmd, buf, 5);
+            else msp_send_packet((uint8_t)cmd, buf, 5);
             break;
 
         case MSP_RC_TUNING:
@@ -491,6 +499,48 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
             if (is_v2) msp2_send_packet(cmd, buf, 7);
             else msp_send_packet((uint8_t)cmd, buf, 7);
             break;
+
+        case MSP_ACC_TRIM:
+            buf[0] = 0; buf[1] = 0; // pitch trim
+            buf[2] = 0; buf[3] = 0; // roll trim
+            if (is_v2) msp2_send_packet(cmd, buf, 4);
+            else msp_send_packet((uint8_t)cmd, buf, 4);
+            break;
+
+        case MSP_MIXER_CONFIG:
+            buf[0] = 3; // QuadX
+            buf[1] = 0; // Normal rotation
+            if (is_v2) msp2_send_packet(cmd, buf, 2);
+            else msp_send_packet((uint8_t)cmd, buf, 2);
+            break;
+
+        case MSP_ADVANCED_CONFIG:
+            buf[0] = 1; // gyro_sync_denom
+            buf[1] = 1; // pid_process_denom
+            buf[2] = 0; // use_unsyncedPwm
+            buf[3] = 0; // fast_pwm_protocol: standard PWM
+            buf[4] = 400 & 0xFF; buf[5] = 400 >> 8; // motor_pwm_rate: 400Hz
+            buf[6] = 550 & 0xFF; buf[7] = 550 >> 8; // motorIdle: 5.5%
+            buf[8] = 0; // gyroUse32Khz
+            buf[9] = 0; // motorPwmInversion
+            buf[10] = 0; // gyro_to_use
+            buf[11] = 0; // gyroHighFsr
+            buf[12] = 48; // gyroMovementCalibThreshold
+            buf[13] = 125 & 0xFF; buf[14] = 125 >> 8; // gyroCalibDuration
+            buf[15] = 0; buf[16] = 0; // gyroOffsetYaw
+            buf[17] = 0; // gyroCheckOverflow
+            if (is_v2) msp2_send_packet(cmd, buf, 18);
+            else msp_send_packet((uint8_t)cmd, buf, 18);
+            break;
+
+        case MSP2_MCU_INFO: {
+            const char *mcu_name = "ESP32-S3";
+            buf[0] = 1;
+            uint8_t nlen = strlen(mcu_name);
+            memcpy(&buf[1], mcu_name, nlen);
+            msp2_send_packet(cmd, buf, 1 + nlen);
+            break;
+        }
 
         case MSP_EEPROM_WRITE:
             if (is_v2) msp2_send_packet(cmd, NULL, 0);
