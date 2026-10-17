@@ -16,6 +16,8 @@
 #define MSP_BUILD_INFO      5
 #define MSP_NAME            11
 #define MSP_FEATURE_CONFIG  36
+#define MSP_CF_SERIAL_CONFIG 54
+#define MSP_SENSOR_CONFIG    96
 #define MSP_IDENT           100
 #define MSP_STATUS          101
 #define MSP_RAW_IMU         102
@@ -24,9 +26,11 @@
 #define MSP_ATTITUDE        108
 #define MSP_ALTITUDE        109
 #define MSP_ANALOG          110
+#define MSP_RC_TUNING       111
 #define MSP_PID             112
 #define MSP_BOXNAMES        116
 #define MSP_BOXIDS          119
+#define MSP_SENSOR_ALIGNMENT 126
 #define MSP_BATTERY_STATE   130
 #define MSP_MOTOR_CONFIG    131
 #define MSP_STATUS_EX       150
@@ -253,7 +257,8 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
         case MSP_STATUS: {
             uint16_t cycle_time = current_telem.cycle_time_us > 0 ? current_telem.cycle_time_us : 1000;
             uint16_t i2c_errs = 0;
-            uint16_t sensor_flags = 0x01 | 0x02 | 0x04; // ACC | BARO | MAG
+            // Betaflight sensor bits: Bit 0=ACC, Bit 1=BARO, Bit 2=MAG, Bit 3=GPS, Bit 4=RANGEFINDER, Bit 5=GYRO
+            uint16_t sensor_flags = (1 << 0) | (1 << 1) | (1 << 4) | (1 << 5); // 0x33 (ACC + BARO + RANGE + GYRO)
             uint32_t flight_mode = current_telem.armed ? 0x01 : 0x00;
 
             buf[0] = cycle_time & 0xFF; buf[1] = cycle_time >> 8;
@@ -269,21 +274,31 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
 
         case MSP_STATUS_EX: {
             uint16_t cycle_time = current_telem.cycle_time_us > 0 ? current_telem.cycle_time_us : 1000;
+            uint16_t i2c_errs = 0;
+            uint16_t sensor_flags = (1 << 0) | (1 << 1) | (1 << 4) | (1 << 5); // ACC + BARO + RANGE + GYRO
+            uint32_t flight_mode = current_telem.armed ? 0x01 : 0x00;
+            uint8_t pid_profile = 0;
+            uint16_t cpu_load = current_telem.cpu_load_pct;
+
             uint8_t p = 0;
             buf[p++] = cycle_time & 0xFF; buf[p++] = cycle_time >> 8;
-            buf[p++] = 0; buf[p++] = 0; // i2c errors
-            buf[p++] = 0x07; buf[p++] = 0x00; // sensors: ACC | BARO | MAG
-            buf[p++] = current_telem.armed ? 0x01 : 0x00;
-            buf[p++] = 0; buf[p++] = 0; buf[p++] = 0; // mode flags
-            buf[p++] = 0; // profile
-            buf[p++] = current_telem.cpu_load_pct & 0xFF;
-            buf[p++] = current_telem.cpu_load_pct >> 8;
-            buf[p++] = 0; buf[p++] = 0; // arming disabled flags (0 = ready to arm)
-            buf[p++] = 1; // acc present
-            buf[p++] = 1; // baro present
-            buf[p++] = 1; // mag present
-            buf[p++] = 0; // gps present
-            buf[p++] = 1; // sonar present
+            buf[p++] = i2c_errs & 0xFF;   buf[p++] = i2c_errs >> 8;
+            buf[p++] = sensor_flags & 0xFF; buf[p++] = sensor_flags >> 8;
+            buf[p++] = flight_mode & 0xFF; buf[p++] = (flight_mode >> 8) & 0xFF;
+            buf[p++] = (flight_mode >> 16) & 0xFF; buf[p++] = (flight_mode >> 24) & 0xFF;
+            buf[p++] = pid_profile;
+            buf[p++] = cpu_load & 0xFF; buf[p++] = cpu_load >> 8;
+            buf[p++] = 3; // PID_PROFILE_COUNT
+            buf[p++] = 0; // currentControlRateProfileIndex
+            buf[p++] = 0; // extra flightModeFlags byteCount
+            buf[p++] = 32; // ARMING_DISABLE_FLAGS_COUNT
+            buf[p++] = 0; buf[p++] = 0; buf[p++] = 0; buf[p++] = 0; // armingDisableFlags = 0 (Ready to ARM)
+            buf[p++] = 0; // rebootRequired
+            buf[p++] = 35; buf[p++] = 0; // coreTemp: 35C
+            buf[p++] = 6; // CONTROL_RATE_PROFILE_COUNT
+            buf[p++] = 3; // BATTERY_PROFILE_COUNT
+            buf[p++] = 0; // currentBatteryProfileIndex
+
             if (is_v2) msp2_send_packet(cmd, buf, p);
             else msp_send_packet((uint8_t)cmd, buf, p);
             break;
@@ -302,16 +317,18 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
             else msp_send_packet((uint8_t)cmd, buf, 18);
             break;
 
-        case MSP_ATTITUDE:
+        case MSP_ATTITUDE: {
             buf[0] = current_telem.roll_decideg & 0xFF;
             buf[1] = current_telem.roll_decideg >> 8;
             buf[2] = current_telem.pitch_decideg & 0xFF;
             buf[3] = current_telem.pitch_decideg >> 8;
-            buf[4] = current_telem.yaw_decideg & 0xFF;
-            buf[5] = current_telem.yaw_decideg >> 8;
+            int16_t yaw_deg = current_telem.yaw_decideg / 10;
+            buf[4] = yaw_deg & 0xFF;
+            buf[5] = yaw_deg >> 8;
             if (is_v2) msp2_send_packet(cmd, buf, 6);
             else msp_send_packet((uint8_t)cmd, buf, 6);
             break;
+        }
 
         case MSP_ALTITUDE: {
             int32_t alt = current_telem.alt_cm;
@@ -431,6 +448,49 @@ static void msp_dispatch(uint16_t cmd, bool is_v2) {
             else msp_send_packet((uint8_t)cmd, (uint8_t*)uid, 12);
             break;
         }
+
+        case MSP_SENSOR_CONFIG:
+            buf[0] = 1; // ACC hardware: Bosch BMI270
+            buf[1] = 0; // BARO hardware: none/default
+            buf[2] = 0; // MAG hardware: none
+            buf[3] = 0; // SONAR hardware: none
+            if (is_v2) msp2_send_packet(cmd, buf, 4);
+            else msp_send_packet((uint8_t)cmd, buf, 4);
+            break;
+
+        case MSP_SENSOR_ALIGNMENT:
+            buf[0] = 0; // gyro alignment: CW0
+            buf[1] = 0; // acc alignment: CW0
+            buf[2] = 0; // mag alignment: CW0
+            buf[3] = 0; // gyro to use: primary
+            if (is_v2) msp2_send_packet(cmd, buf, 4);
+            else msp_send_packet((uint8_t)cmd, buf, 4);
+            break;
+
+        case MSP_RC_TUNING:
+            buf[0] = 100; // rcRate8
+            buf[1] = 0;   // rcExpo8
+            buf[2] = 70;  // rollRate
+            buf[3] = 70;  // pitchRate
+            buf[4] = 70;  // yawRate
+            buf[5] = 0;   // dynThrPID
+            buf[6] = 50;  // thrMid8
+            buf[7] = 0;   // thrExpo8
+            if (is_v2) msp2_send_packet(cmd, buf, 8);
+            else msp_send_packet((uint8_t)cmd, buf, 8);
+            break;
+
+        case MSP_CF_SERIAL_CONFIG:
+            // Report 1 serial port: VCP MSP at 115200
+            buf[0] = 0; // port ID 0 = VCP
+            buf[1] = 1; buf[2] = 0; // functionMask: 1 = MSP
+            buf[3] = 5; // MSP baudrate: 115200
+            buf[4] = 0; // GPS baud
+            buf[5] = 0; // TELEM baud
+            buf[6] = 0; // BLACKBOX baud
+            if (is_v2) msp2_send_packet(cmd, buf, 7);
+            else msp_send_packet((uint8_t)cmd, buf, 7);
+            break;
 
         case MSP_EEPROM_WRITE:
             if (is_v2) msp2_send_packet(cmd, NULL, 0);

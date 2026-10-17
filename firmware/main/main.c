@@ -51,6 +51,15 @@ static void flight_core_task(void *pvParameters) {
             ahrs_update(imu.gx_rads, imu.gy_rads, imu.gz_rads,
                         imu.ax_g, imu.ay_g, imu.az_g, dt);
             g_drone.attitude = *ahrs_get_attitude();
+
+            // Store raw IMU values for Betaflight Telemetry
+            g_drone.acc_raw[0] = (int16_t)(imu.ax_g * 512.0f);
+            g_drone.acc_raw[1] = (int16_t)(imu.ay_g * 512.0f);
+            g_drone.acc_raw[2] = (int16_t)(imu.az_g * 512.0f);
+
+            g_drone.gyro_raw[0] = (int16_t)(imu.gx_dps * 16.4f);
+            g_drone.gyro_raw[1] = (int16_t)(imu.gy_dps * 16.4f);
+            g_drone.gyro_raw[2] = (int16_t)(imu.gz_dps * 16.4f);
         }
 
         // 3. Check RC Arming & Failsafe
@@ -191,6 +200,12 @@ static void service_task(void *pvParameters) {
         telem.armed         = g_drone.armed;
         telem.cycle_time_us = (uint16_t)g_drone.loop_dt_us;
         telem.cpu_load_pct  = g_drone.cpu_load_pct;
+
+        for (int i = 0; i < 3; i++) {
+            telem.acc[i] = g_drone.acc_raw[i];
+            telem.gyro[i] = g_drone.gyro_raw[i];
+            telem.mag[i] = 0;
+        }
 
         for (int i = 0; i < 4; i++) {
             telem.motor[i] = 1000 + (uint16_t)(g_drone.motor_duties[i] * 1000.0f);

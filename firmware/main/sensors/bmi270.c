@@ -45,6 +45,17 @@ static esp_err_t bmi270_read_regs(uint8_t reg, uint8_t *buf, size_t len) {
 }
 
 esp_err_t bmi270_init(void) {
+    // 1. Explicitly deselect PMW3901 optical flow on the shared SPI bus
+    gpio_config_t cs_conf = {
+        .pin_bit_mask = (1ULL << PMW3901_CS_PIN),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cs_conf);
+    gpio_set_level(PMW3901_CS_PIN, 1);
+
     spi_bus_config_t buscfg = {
         .miso_io_num = IMU_SPI_MISO_PIN,
         .mosi_io_num = IMU_SPI_MOSI_PIN,

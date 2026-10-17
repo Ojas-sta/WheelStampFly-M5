@@ -19,6 +19,8 @@ typedef struct {
 
     // Flight Dynamics (Written by Core 1, Read by Core 0)
     ahrs_t attitude;
+    int16_t acc_raw[3];    // Live IMU Accelerometer (X, Y, Z)
+    int16_t gyro_raw[3];   // Live IMU Gyroscope (X, Y, Z)
     float motor_duties[4]; // FL, FR, RL, RR (0.0 to 1.0)
     bool armed;
     flight_state_t flight_state;

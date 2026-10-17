@@ -58,20 +58,20 @@ extern "C" {
 #define BUMPER_BRAKE_DIST_MM    500          // Hard reverse-brake threshold: 0.5 meter
 
 // ==============================================================================
-// 5. SPI BUS & IMU (Bosch BMI270)
+// 5. SPI BUS & IMU (Bosch BMI270 & PMW3901 on M5StampFly PCB)
 // ==============================================================================
 #define IMU_SPI_HOST            SPI2_HOST
-#define IMU_SPI_SCK_PIN         GPIO_NUM_39
-#define IMU_SPI_MOSI_PIN        GPIO_NUM_14
-#define IMU_SPI_MISO_PIN        GPIO_NUM_38
-#define BMI270_CS_PIN           GPIO_NUM_21
-#define PMW3901_CS_PIN          GPIO_NUM_12
+#define IMU_SPI_SCK_PIN         GPIO_NUM_44  // StampFly Official SCK
+#define IMU_SPI_MOSI_PIN        GPIO_NUM_14  // StampFly Official MOSI
+#define IMU_SPI_MISO_PIN        GPIO_NUM_43  // StampFly Official MISO
+#define BMI270_CS_PIN           GPIO_NUM_12  // StampFly Official BMI270 CS
+#define PMW3901_CS_PIN          GPIO_NUM_46  // StampFly Official PMW3901 CS
 
 // ==============================================================================
 // 6. AUDIO / VISUAL HARDWARE
 // ==============================================================================
-#define BUZZER_GPIO             GPIO_NUM_40
-#define WS2812_RGB_GPIO         GPIO_NUM_39
+#define BUZZER_GPIO             GPIO_NUM_40  // StampFly Official Buzzer
+#define WS2812_RGB_GPIO         GPIO_NUM_39  // StampFly Official WS2812 RGB LED
 
 // ==============================================================================
 // 7. TASK PRIORITIES & CORE AFFINITIES
